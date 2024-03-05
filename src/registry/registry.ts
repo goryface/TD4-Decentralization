@@ -1,63 +1,58 @@
 import bodyParser from "body-parser";
-import express, { Request, Response } from "express";
-import { REGISTRY_PORT } from "../config";
-import { generateRsaKeyPair } from "../../src/crypto"; // Import the function to generate RSA key pairs
-import { webcrypto } from "crypto";
-import crypto from "crypto";
+import express from "express";
+import {REGISTRY_PORT} from "../config";
 
-export type Node = { nodeId: number; pubKey: string; privateKey?: webcrypto.CryptoKey }; // Add privateKey field to Node type
+export type Node = {
+    nodeId: number;
+    pubKey: string
+};
 
 export type RegisterNodeBody = {
-  nodeId: number;
-  pubKey: string;
+    nodeId: number;
+    pubKey: string;
 };
 
 export type GetNodeRegistryBody = {
-  nodes: Node[];
+    nodes: Node[];
+};
+
+const nodeRegistry: GetNodeRegistryBody = {
+    nodes: [],
 };
 
 export async function launchRegistry() {
-  const _registry = express();
-  _registry.use(express.json());
-  _registry.use(bodyParser.json());
-  const registeredNodes: Node[] = []; // Define registeredNodes array here
+    const _registry = express();
+    _registry.use(express.json());
+    _registry.use(bodyParser.json());
 
-  // Route to handle registering nodes
-  _registry.post("/registerNode", (req: Request<any, any, RegisterNodeBody>, res: Response<GetNodeRegistryBody>) => {
-    const { nodeId, pubKey } = req.body;
-    const newNode: Node = { nodeId, pubKey };
-    registeredNodes.push(newNode);
-    res.status(200).json({ nodes: registeredNodes });
-  });
+    _registry.get("/status", (_, res) => {
+        res.status(200).send("live");
+    });
 
-  // Route to handle getting private key of a node
-  _registry.get("/getPrivateKey/:nodeId", async (req: Request, res: Response) => {
-    const nodeId = parseInt(req.params.nodeId);
-    const node = registeredNodes.find((n) => n.nodeId === nodeId);
-    if (!node) {
-      return res.status(404).json({ error: "Node not found" });
-    }
+    // Register a node: if the node is not already registered, add it to the registry
+    _registry.post("/registerNode", async (req, res) => {
+        try {
+            console.log("Registering node...");
+            const {nodeId, pubKey} = req.body as RegisterNodeBody;
+            if (!nodeRegistry.nodes.find((n) => n.nodeId === nodeId))
+                nodeRegistry.nodes.push({nodeId, pubKey});
+            res.status(200).send("Node registered");
+        } catch (error) {
+            res.status(500).send("Internal server error");
+        }
+    });
 
-    // Check if the private key is already generated
-    if (node.privateKey) {
-      return res.status(200).json({ result: node.privateKey });
-    }
+    // Get the whole node registry
+    _registry.get("/getNodeRegistry", (_, res) => {
+        try {
+            console.log("Getting node registry...");
+            res.status(200).send(nodeRegistry);
+        } catch (error) {
+            res.status(500).send("Internal server error");
+        }
+    });
 
-    // Generate RSA key pair for the node
-    try {
-      const { privateKey } = await generateRsaKeyPair();
-      node.privateKey = privateKey; // Store the private key in the node object
-      return res.status(200).json({ result: privateKey });
-    } catch (error) {
-      return res.status(500).json({ error: "Failed to generate key pair" });
-    }
-  });
-
-  _registry.get("/status", (req, res) => {res.send("live")});
-
-  const server = _registry.listen(REGISTRY_PORT, () => {
-    console.log(`registry is listening on port ${REGISTRY_PORT}`);
-  });
-
-  return server;
+    return _registry.listen(REGISTRY_PORT, () => {
+        console.log(`registry is listening on port ${REGISTRY_PORT}`);
+    });
 }
